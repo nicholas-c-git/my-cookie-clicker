@@ -1,10 +1,9 @@
-import math
-
 import pygame
 from pygame.locals import *
 
 import pygame.freetype
 
+import math
 
 #initial settings
 #fps set in the game loop
@@ -21,11 +20,89 @@ CookieImageFileName = "Cookie.webp" #Minecraft cookie sprite
 CookieImage = pygame.image.load(CookieImageFileName)
 pygame.display.set_icon(CookieImage)
 
+BigNumberMap = {0:"", 1:"thousand", 2:"million", 3:"billion", 4:"trillion", 5:"quadrillion", 6:"quintillion"}
+class BigNumber:
+    def __init__(self, value: float = 0, thousand_power: int = 0):
+        while value >= 1000:
+            value /= 1000
+            thousand_power += 1
 
-#global variables and classes
-Money = 0 #the points of this game
-MoneyPerClick = 1
-Cookies_per_second = 0
+        self.value = value
+        self.thousand_power = thousand_power
+
+    def __getitem__(self, item: int = None):
+        if item is None:
+            return self.value, self.thousand_power
+        return [self.value, self.thousand_power][item]
+
+    def __str__(self):
+        if self.thousand_power > 6:
+            return "too many"
+        return f"{round(self.value, 2)} {BigNumberMap.get(self.thousand_power) or ""}"
+
+    def __copy__(self):
+        return BigNumber(self.value, self.thousand_power)
+
+    def compare(self, other_Number: 'BigNumber'):
+        #self greater than or equal to other_Number
+        if other_Number[1] > self[1]:
+            return 0
+        elif other_Number[1] < self[1]:
+            return 1
+
+        return other_Number[0] <= self[0]
+
+    def add(self, other_Number: 'BigNumber'):
+        if other_Number[1] == self[1]:
+            self.value += other_Number[0]
+        elif other_Number[1] < self[1]:
+            self.value = other_Number[0] + self.value * math.pow(1000, (self.thousand_power - other_Number[1]) )
+            self.thousand_power = other_Number[1]
+        elif other_Number[1] > self[1]:
+            self.value = self.value + other_Number[0] * math.pow(1000, (other_Number[1]) - self.thousand_power)
+
+        if self[0] >= 1000:
+            self.value /= 1000
+            self.thousand_power += 1
+        elif self[0] < 1 and self.thousand_power:
+            self.value *= 1000
+            self.thousand_power -= 1
+
+        return self
+
+    def sub(self, other_Number: 'BigNumber'):
+        #doesn't go to negatives, gives an error
+        if (other_Number[1] > self[1]) or (other_Number[1] == self[1] and other_Number[0] > self[0]):
+            print(f"Error, subtracted larger from lower")
+            pygame.quit()
+
+        while self[1] > other_Number[1]:
+            self.value *= 1000
+            self.thousand_power -= 1
+        self.value -= other_Number[0]
+
+        while self[0] >= 1000 and self.thousand_power:
+            self.value /= 1000
+            self.thousand_power += 1
+
+        return self
+
+    def multiply(self, num: float):
+        self.value *= num
+
+        while self[0] >= 1000:
+            self.value /= 1000
+            self.thousand_power += 1
+        return self
+
+    def floor(self):
+        return BigNumber(math.floor(self.value), self.thousand_power)
+
+
+#global variables, game classes and methods
+Money = BigNumber(0, 0) #called cookies in game
+MoneyPerClick = BigNumber(1, 0)
+Cookies_per_second = BigNumber(0, 0)
 
 class Cookie(pygame.sprite.Sprite):
     small = 0  # possible minor performance improver
@@ -35,10 +112,7 @@ class Cookie(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         self.surface = CookieImage
-
-    def click(self):
-        global Money
-        Money += MoneyPerClick
+        self.rect = self.surface.get_rect()
 
     def draw(self, surface):
         self.rect = self.surface.get_rect()
@@ -49,29 +123,52 @@ class Cookie(pygame.sprite.Sprite):
         if not self.small:
             self.surface = CookieImage
 
+def click():
+    global Money
+    Money.add(MoneyPerClick)
+
 TopTextFont = pygame.freetype.Font(None, 30)
-SecondTextFont = pygame.freetype.Font(None, 25)
+SecondTextFont = pygame.freetype.Font(None, 20)
 FPS_Font = pygame.freetype.Font(None, 20)
-class TopText:
-    def draw(self, surface):
-        self.surface, self.rect = TopTextFont.render(f"Cookies made: {math.floor(Money)}", (255, 255, 255))
-        self.rect.center = (int(display_width/2), 100)
-        surface.blit(self.surface, self.rect)
+def draw_default_text(display):
+    surface1, rect1 = TopTextFont.render(f"Cookies made:", (255, 255, 255))
+    rect1.center = (int(display_width / 2), 50)
+    display.blit(surface1, rect1)
 
-        self.second_surface, self.second_rect = SecondTextFont.render(f"Cookies per second: {Cookies_per_second}",
+    if Money.thousand_power:
+        surface, rect = TopTextFont.render(f"{str(Money)}", (255, 255, 255))
+    else:
+        surface, rect = TopTextFont.render(f"{str(Money.floor())}", (255, 255, 255))
+    rect.center = (int(display_width / 2), 85)
+    display.blit(surface, rect)
+
+    second_surface1, second_rect1 = SecondTextFont.render(f"Cookies per second:",
+                                                                  (255, 255, 255))
+    second_rect1.center = (int(display_width/2), 140)
+    display.blit(second_surface1, second_rect1)
+
+    if Cookies_per_second.thousand_power:
+        second_surface, second_rect = SecondTextFont.render(f"{str(Cookies_per_second)}",
                                                                       (255, 255, 255))
-        self.second_rect.center = (int(display_width/2), 140)
-        surface.blit(self.second_surface, self.second_rect)
+    else:
+        second_surface, second_rect = SecondTextFont.render(f"{str(Cookies_per_second.floor())}",
+                                                                      (255, 255, 255))
+    second_rect.center = (int(display_width/2), 165)
+    display.blit(second_surface, second_rect)
 
-        self.third_surface, self.third_rect = SecondTextFont.render(f"Cookies per click: {MoneyPerClick}",
+    if MoneyPerClick.thousand_power:
+        third_surface, third_rect = SecondTextFont.render(f"Cookies per click: {str(MoneyPerClick)}",
                                                                     (255, 255, 255))
-        self.third_rect.center = (int(display_width/2), 170)
-        surface.blit(self.third_surface, self.third_rect)
+    else:
+        third_surface, third_rect = SecondTextFont.render(f"Cookies per click: {str(MoneyPerClick.floor())}",
+                                                                    (255, 255, 255))
+    third_rect.center = (int(display_width/2), 200)
+    display.blit(third_surface, third_rect)
 
-        self.fourth_surface, self.fourth_rect = FPS_Font.render(f"fps: {round(Clock.get_fps(), 1)}",
-                                                                    (255, 255, 255))
-        self.fourth_rect.center = (int(display_width / 2), 675)
-        surface.blit(self.fourth_surface, self.fourth_rect)
+    fourth_surface, fourth_rect = FPS_Font.render(f"fps: {round(Clock.get_fps(), 1)}",
+                                                                (255, 255, 255))
+    fourth_rect.center = (int(display_width/2), 675)
+    display.blit(fourth_surface, fourth_rect)
 
 UpgradeButtonFont = pygame.freetype.Font(None, 20)
 UpgradeButtonSecondaryFont = pygame.freetype.Font(None, 15)
@@ -84,13 +181,13 @@ class UpgradeButton(pygame.sprite.Sprite):
     NameColor = (255, 255, 255)
     ButtonColor = (180, 180, 180)
 
-    def __init__(self, image_name, upgrade_ID, name, cps, cost):
+    def __init__(self, image_name:str, upgrade_id:int, name:str, cps:int, cost:int, cps2:int=0, cost2:int=0):
         super().__init__()
-        self.ButtonNumber = upgrade_ID
-        self.cps = cps
-        self.cost = cost
+        self.ButtonNumber = upgrade_id
+        self.cps = BigNumber(cps, cps2)
+        self.cost = BigNumber(cost, cost2)
         self.X: int = display_width - ButtonWidth
-        self.Y: int = upgrade_ID * ButtonHeight
+        self.Y: int = upgrade_id * ButtonHeight
         self.amount = 0
 
         #make a new Surface that will be the button
@@ -114,31 +211,39 @@ class UpgradeButton(pygame.sprite.Sprite):
 
     def update(self):
         #set the cost color and show it on the button
-        if Money >= self.cost:
-            self.CostColor = (255, 255, 255)
+        if Money.compare(self.cost):
+            cost_color = (255, 255, 255)
         else:
-            self.CostColor = (255, 0, 0)
+            cost_color = (255, 0, 0)
 
         if not self.small: #when self.small, a copy of the button is shown
 
-        #show cps, cost, and amount
-            self.cps_surface, _ = UpgradeButtonSecondaryFont.render(f"Cps: {str(self.cps)}", self.NameColor)
-            self.surface.blit(self.cps_surface, (self.image.get_width() + 5, 32))
+            #show cps, cost, and amount
+            if self.cps.thousand_power:
+                cps_surface, _ = UpgradeButtonSecondaryFont.render(f"Cps: {str(self.cps)}", self.NameColor)
+                self.surface.blit(cps_surface, (self.image.get_width() + 5, 32))
+            else:
+                cps_surface, _ = UpgradeButtonSecondaryFont.render(f"Cps: {str(self.cps.floor())}", self.NameColor)
+                self.surface.blit(cps_surface, (self.image.get_width() + 5, 32))
 
-            self.cost_surface, _ = UpgradeButtonSecondaryFont.render(f"cost: {str(self.cost)} cookies", self.CostColor)
-            self.surface.blit(self.cost_surface, (self.image.get_width() + 5, 50))
+            if self.cost.thousand_power:
+                cost_surface, _ = UpgradeButtonSecondaryFont.render(f"cost: {str(self.cost)} cookies", cost_color)
+                self.surface.blit(cost_surface, (self.image.get_width() + 5, 50))
+            else:
+                cost_surface, _ = UpgradeButtonSecondaryFont.render(f"cost: {str(self.cost.floor())} cookies", cost_color)
+                self.surface.blit(cost_surface, (self.image.get_width() + 5, 50))
 
-            self.amount_surface, _ = AmountFont.render(str(self.amount), self.NameColor)
-            self.surface.blit(self.amount_surface, (self.surface.get_width() - self.amount_surface.get_width() - 5, 5))
+            amount_surface, _ = AmountFont.render(str(self.amount), self.NameColor)
+            self.surface.blit(amount_surface, (self.surface.get_width() - amount_surface.get_width() - 5, 5))
 
     def buy(self):
         global Money
         global Cookies_per_second
-        if Money >= self.cost and not self.small:
-            Money = max(Money - self.cost, 0)
-            Cookies_per_second += self.cps
+        if Money.compare(self.cost) and not self.small:
+            Money.sub(self.cost)
+            Cookies_per_second.add(self.cps)
             self.amount += 1
-            self.cost = math.floor( self.cost * 1.1 / math.sqrt(1.1) )
+            self.cost.multiply(1.1/math.sqrt(1.1))
 
     def draw(self, surface):
         self.rect = self.surface.get_rect()
@@ -157,7 +262,6 @@ Clock = pygame.time.Clock()
 
 pygame.event.set_allowed([QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP])
 
-MoneyCounter = TopText()
 MainCookie = Cookie()
 
 #upgrades
@@ -167,11 +271,9 @@ Bakery = UpgradeButton("bakery.png", 2, "Bakery", 25, 1500)
 Factory = UpgradeButton("factory.png", 3, "Factory", 100, 10000)
 Shipyard = UpgradeButton("shipyard.webp", 4, "Shipyard", 300, 99000)
 
-
-
 SizeChangesWhenClicked =     [MainCookie, Clicker, Oven, Bakery, Factory, Shipyard]
 NeedsUpdating =                          [Clicker, Oven, Bakery, Factory, Shipyard]
-NeedsDrawing = [MoneyCounter, MainCookie, Clicker, Oven, Bakery, Factory, Shipyard]
+NeedsDrawing =               [MainCookie, Clicker, Oven, Bakery, Factory, Shipyard]
 while 1:
 
     for i in NeedsUpdating:
@@ -199,14 +301,19 @@ while 1:
                     if i != MainCookie:
                         i.buy()
                     else:
-                        i.click()
+                        click()
 
     Display.fill((0, 0, 0))
 
     #add money since last tick
-    Money += Cookies_per_second / 1000 * Clock.tick(30) #run game at 30 fps
+    if Cookies_per_second.value:
+        Money.add(Cookies_per_second.__copy__().multiply( (Clock.tick(30) / 1000) ))
+    else:
+        Clock.tick(30) #run game at 30 fps
 
     for i in NeedsDrawing:
         i.draw(Display)
+
+    draw_default_text(Display)
 
     pygame.display.update() #can update specific rect to improve performance
