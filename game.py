@@ -105,7 +105,7 @@ MoneyPerClick = BigNumber(1, 0)
 Cookies_per_second = BigNumber(0, 0)
 
 class Cookie(pygame.sprite.Sprite):
-    small = 0  # possible minor performance improver
+    shrunken = 0  # possible minor performance improver
     SurfaceWidth = CookieImage.get_width()
     SurfaceHeight = CookieImage.get_height()
 
@@ -120,8 +120,20 @@ class Cookie(pygame.sprite.Sprite):
         surface.blit(self.surface, self.rect)
 
         #clean up the sprite, prevents pixelation after repeated size changes
-        if not self.small:
+        if not self.shrunken:
             self.surface = CookieImage
+
+    def check_size(self):
+        return self.shrunken
+
+    def shrink(self):
+        self.shrunken = 1
+        self.surface = pygame.transform.scale(self.surface, (self.SurfaceWidth * 0.95, self.SurfaceHeight * 0.9))
+        self.rect = self.surface.get_rect()
+    def fix_size(self):
+        self.shrunken = 0
+        self.surface = pygame.transform.scale(self.surface, (self.SurfaceWidth, self.SurfaceHeight))
+        self.rect = self.surface.get_rect()
 
 def click():
     global Money
@@ -177,7 +189,7 @@ ButtonWidth = 300
 ButtonHeight = 100
 class UpgradeButton(pygame.sprite.Sprite):
     #local variables
-    small = 0
+    shrunken = 0
     NameColor = (255, 255, 255)
     ButtonColor = (180, 180, 180)
 
@@ -216,7 +228,7 @@ class UpgradeButton(pygame.sprite.Sprite):
         else:
             cost_color = (255, 0, 0)
 
-        if not self.small: #when self.small, a copy of the button is shown
+        if not self.shrunken: #when not normal size, a copy of the button is shown
 
             #show cps, cost, and amount
             if self.cps.thousand_power:
@@ -237,25 +249,61 @@ class UpgradeButton(pygame.sprite.Sprite):
             self.surface.blit(amount_surface, (self.surface.get_width() - amount_surface.get_width() - 5, 5))
 
     def buy(self):
-        global Money
-        global Cookies_per_second
-        if Money.compare(self.cost) and not self.small:
-            Money.sub(self.cost)
-            Cookies_per_second.add(self.cps)
-            self.amount += 1
-            self.cost.multiply(1.1/math.sqrt(1.1))
+        if self.shrunken and self.rect.collidepoint(pygame.mouse.get_pos()):
+            global Money
+            if Money.compare(self.cost):
+                global Cookies_per_second
+                Money.sub(self.cost)
+                Cookies_per_second.add(self.cps)
+                self.amount += 1
+                self.cost.multiply(1.1/math.sqrt(1.1))
 
     def draw(self, surface):
-        self.rect = self.surface.get_rect()
         self.rect.center = (int(display_width - self.SurfaceWidth/2),
-                            int(self.SurfaceHeight/2 + self.ButtonNumber * self.SurfaceHeight) )
+                            int(self.SurfaceHeight/2 + self.ButtonNumber * self.SurfaceHeight)
+                                                                                            % (self.SurfaceHeight * 5) )
         surface.blit(self.surface, self.rect)
 
         #refresh the displayed surface, turns pixelated after repeated clicks otherwise
         #executed after surface.blit as to not disturb game loop size changes
-        if not self.small:
+        if not self.shrunken:
             self.surface: pygame.Surface = self.saved_surface.copy()
 
+    def shrink(self):
+        if self.rect.collidepoint(pygame.mouse.get_pos()):
+            self.shrunken = 1
+            self.surface = pygame.transform.scale(self.surface, (self.SurfaceWidth * 0.95, self.SurfaceHeight * 0.9))
+            self.rect = self.surface.get_rect()
+
+    def fix_size(self):
+        if self.shrunken:
+            self.shrunken = 0
+            self.surface = pygame.transform.scale(self.surface, (self.SurfaceWidth, self.SurfaceHeight))
+            self.rect = self.surface.get_rect()
+
+class Page:
+    def __init__(self, *args:UpgradeButton):
+        self.buttons = args
+
+    def update(self):
+        for i in self.buttons:
+            i.update()
+
+    def buy(self):
+        for i in self.buttons:
+            i.buy()
+
+    def draw(self, surface):
+        for i in self.buttons:
+            i.draw(surface)
+
+    def shrink(self):
+        for i in self.buttons:
+            i.shrink()
+
+    def fix_size(self):
+        for i in self.buttons:
+            i.fix_size()
 
 #game loop
 Clock = pygame.time.Clock()
@@ -270,10 +318,12 @@ Oven = UpgradeButton("oven.png", 1, "Oven", 5, 150)
 Bakery = UpgradeButton("bakery.png", 2, "Bakery", 25, 1500)
 Factory = UpgradeButton("factory.png", 3, "Factory", 100, 10000)
 Shipyard = UpgradeButton("shipyard.webp", 4, "Shipyard", 300, 99000)
+Page1 = Page(Clicker, Oven, Bakery, Factory, Shipyard)
 
-SizeChangesWhenClicked =     [MainCookie, Clicker, Oven, Bakery, Factory, Shipyard]
-NeedsUpdating =                          [Clicker, Oven, Bakery, Factory, Shipyard]
-NeedsDrawing =               [MainCookie, Clicker, Oven, Bakery, Factory, Shipyard]
+# MainCookie not included in arrays
+SizeChangesWhenClicked =   [Page1]
+NeedsUpdating =            [Page1]
+NeedsDrawing = [MainCookie, Page1]
 while 1:
 
     for i in NeedsUpdating:
@@ -286,22 +336,20 @@ while 1:
 
         # these pairs need to be in the game loop because there is no detection of MOUSEBUTTONUP without using events
         if event.type == MOUSEBUTTONDOWN:
+            if MainCookie.rect.collidepoint(pygame.mouse.get_pos()) and not MainCookie.shrunken:
+                MainCookie.shrink()
+
             for i in SizeChangesWhenClicked:
-                if not i.small and i.rect.collidepoint(pygame.mouse.get_pos()):
-                    i.surface = pygame.transform.scale(i.surface,(i.SurfaceWidth * 0.95, i.SurfaceHeight * 0.9))
-                    i.rect = i.surface.get_rect()
-                    i.small = 1
+                i.shrink()
 
         if event.type == MOUSEBUTTONUP:
+            if MainCookie.shrunken:
+                MainCookie.fix_size()
+                click()
+
             for i in SizeChangesWhenClicked:
-                if i.small:
-                    i.surface = pygame.transform.scale(i.surface, (i.SurfaceWidth, i.SurfaceHeight))
-                    i.rect = i.surface.get_rect()
-                    i.small = 0
-                    if i != MainCookie:
-                        i.buy()
-                    else:
-                        click()
+                i.buy()
+                i.fix_size()
 
     Display.fill((0, 0, 0))
 
